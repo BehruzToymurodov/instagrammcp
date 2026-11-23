@@ -1,0 +1,12 @@
+# secrets and local data: never commit
+.env
+data/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
