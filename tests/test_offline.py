@@ -197,3 +197,35 @@ if __name__ == "__main__":
     test_all()
     test_server_tools_register()
     print("all tests passed")
+
+
+def test_facebook_mode_system_user_token(tmp_path=None):
+    """Unified login gives an 'EAA...' system user token: graph.facebook.com + numeric IG id."""
+    import importlib
+    from instagram_mcp import config
+    seen = []
+
+    def fb(req: httpx.Request) -> httpx.Response:
+        seen.append((req.url.host, req.url.path))
+        if req.url.path.endswith("/me/accounts"):
+            return httpx.Response(200, json={"data": [{"id": "page1", "instagram_business_account": {"id": "1784"}}]})
+        if req.url.path.endswith("/1784"):
+            return httpx.Response(200, json={"id": "1784", "username": "lyricno1r", "followers_count": 7})
+        if req.url.path.endswith("/1784/media_publish"):
+            return httpx.Response(200, json={"id": "m1"})
+        return httpx.Response(404, json={"error": {"message": "x", "code": 1}})
+
+    old = config.TOKEN_FILE
+    config.TOKEN_FILE = Path(TMP) / "none.json"
+    os.environ["IG_ACCESS_TOKEN"] = "EAAsystemtoken"
+    try:
+        c = InstagramClient()
+        c._http = httpx.Client(transport=httpx.MockTransport(fb))
+        assert c.facebook_mode and c.profile()["username"] == "lyricno1r"
+        assert c.publish_container("c1") == "m1"
+        assert all(h == "graph.facebook.com" for h, _ in seen)
+        assert ("graph.facebook.com", "/v26.0/1784/media_publish") in seen
+        assert c.refresh_token_if_due(force=True) is False
+    finally:
+        config.TOKEN_FILE = old
+        os.environ["IG_ACCESS_TOKEN"] = "TEST_TOKEN_SECRET"

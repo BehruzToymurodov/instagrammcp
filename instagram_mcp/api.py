@@ -27,6 +27,52 @@ class InstagramClient:
     def __init__(self, timeout: float = 60.0):
         self._state = config.load_token()
         self._http = httpx.Client(timeout=timeout)
+        self._ig: str | None = None
+
+    # Two kinds of token work:
+    #  - Instagram Login token ("IGAA..."): graph.instagram.com, account = "me", 60-day refresh
+    #  - Unified login / system user token ("EAA..."): graph.facebook.com, account = numeric
+    #    Instagram user id, never expires
+    @property
+    def facebook_mode(self) -> bool:
+        return self._state.token.startswith("EAA")
+
+    @property
+    def base(self) -> str:
+        return config.GRAPH_FB if self.facebook_mode else config.GRAPH
+
+    @property
+    def ig(self) -> str:
+        """Path of the Instagram account: 'me' or its numeric id."""
+        if self._ig:
+            return self._ig
+        if not self.facebook_mode:
+            self._ig = "me"
+        elif config.IG_USER_ID:
+            self._ig = config.IG_USER_ID
+        else:
+            self._ig = self._discover_ig_id()
+        return self._ig
+
+    def _discover_ig_id(self) -> str:
+        tries = [
+            ("me/accounts", {"fields": "instagram_business_account"}),
+            ("me/instagram_accounts", {"fields": "id,username"}),
+        ]
+        for path, params in tries:
+            try:
+                for row in self.get(path, **params).get("data", []):
+                    iba = row.get("instagram_business_account")
+                    if iba and iba.get("id"):
+                        return iba["id"]
+                    if path.endswith("instagram_accounts") and row.get("id"):
+                        return row["id"]
+            except InstagramError:
+                continue
+        raise InstagramError(
+            "Couldn't find the Instagram account for this token. Add IG_USER_ID=<number> "
+            "to .env (see README, 'Finding IG_USER_ID')."
+        )
 
     # ------------------------------------------------------------------ core
     @property
@@ -53,18 +99,18 @@ class InstagramClient:
     def get(self, path: str, **params: Any) -> Any:
         params = {k: v for k, v in params.items() if v is not None}
         params["access_token"] = self.token
-        r = self._http.get(f"{config.GRAPH}/{path.lstrip('/')}", params=params)
+        r = self._http.get(f"{self.base}/{path.lstrip('/')}", params=params)
         return self._check(r)
 
     def post(self, path: str, **params: Any) -> Any:
         params = {k: v for k, v in params.items() if v is not None}
         params["access_token"] = self.token
-        r = self._http.post(f"{config.GRAPH}/{path.lstrip('/')}", data=params)
+        r = self._http.post(f"{self.base}/{path.lstrip('/')}", data=params)
         return self._check(r)
 
     def delete(self, path: str) -> Any:
         r = self._http.delete(
-            f"{config.GRAPH}/{path.lstrip('/')}", params={"access_token": self.token}
+            f"{self.base}/{path.lstrip('/')}", params={"access_token": self.token}
         )
         return self._check(r)
 
@@ -87,6 +133,8 @@ class InstagramClient:
         Meta only allows refreshing a token that is at least 24 hours old, so a
         failed refresh on a brand-new token is ignored rather than raised.
         """
+        if self.facebook_mode:
+            return False  # system user tokens don't expire and can't be refreshed this way
         age = time.time() - self._state.refreshed_at
         if not force and self._state.refreshed_at and age < config.REFRESH_EVERY_SECONDS:
             return False
@@ -117,11 +165,17 @@ class InstagramClient:
         "like_count,comments_count,thumbnail_url,media_url,is_shared_to_feed"
     )
 
+    PROFILE_FIELDS_FB = (
+        "id,username,name,profile_picture_url,followers_count,follows_count,"
+        "media_count,biography,website"
+    )
+
     def profile(self) -> dict:
-        return self.get("me", fields=self.PROFILE_FIELDS)
+        fields = self.PROFILE_FIELDS_FB if self.facebook_mode else self.PROFILE_FIELDS
+        return self.get(self.ig, fields=fields)
 
     def media(self, limit: int = 50) -> list[dict]:
-        return self.get_all("me/media", limit=limit, fields=self.MEDIA_FIELDS)
+        return self.get_all(f"{self.ig}/media", limit=limit, fields=self.MEDIA_FIELDS)
 
     def media_item(self, media_id: str) -> dict:
         return self.get(media_id, fields=self.MEDIA_FIELDS)
@@ -172,13 +226,13 @@ class InstagramClient:
         breakdown: str | None = None, timeframe: str | None = None,
     ) -> dict:
         return self._insights(
-            "me", metrics, period=period, since=since, until=until,
+            self.ig, metrics, period=period, since=since, until=until,
             metric_type=metric_type, breakdown=breakdown, timeframe=timeframe,
         )
 
     # ------------------------------------------------------------ publishing
     def publishing_limit(self) -> dict:
-        data = self.get("me/content_publishing_limit", fields="quota_usage,config")
+        data = self.get(f"{self.ig}/content_publishing_limit", fields="quota_usage,config")
         return (data.get("data") or [{}])[0]
 
     def create_reel_container(
@@ -205,7 +259,7 @@ class InstagramClient:
             params["video_url"] = video_url
         else:
             params["upload_type"] = "resumable"
-        return self.post("me/media", **params)["id"]
+        return self.post(f"{self.ig}/media", **params)["id"]
 
     def upload_video_file(self, container_id: str, path: Path) -> None:
         """Resumable upload of a local file straight to Meta (no public URL needed)."""
@@ -240,7 +294,7 @@ class InstagramClient:
             time.sleep(every_s)
 
     def publish_container(self, container_id: str) -> str:
-        return self.post("me/media_publish", creation_id=container_id)["id"]
+        return self.post(f"{self.ig}/media_publish", creation_id=container_id)["id"]
 
     # -------------------------------------------------------------- comments
     def comments(self, media_id: str, limit: int = 100) -> list[dict]:

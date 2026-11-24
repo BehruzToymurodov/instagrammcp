@@ -24,8 +24,11 @@ TOKEN_FILE = DATA_DIR / "token.json"
 DB_FILE = DATA_DIR / "instagram.db"
 
 API_VERSION = os.getenv("IG_API_VERSION", "v26.0")
-GRAPH = f"https://graph.instagram.com/{API_VERSION}"
+GRAPH = f"https://graph.instagram.com/{API_VERSION}"  # Instagram Login tokens (IGAA...)
+GRAPH_FB = f"https://graph.facebook.com/{API_VERSION}"  # Unified login / system user tokens (EAA...)
 GRAPH_UNVERSIONED = "https://graph.instagram.com"
+# Needed only for Facebook-style tokens if auto-discovery fails (numeric Instagram account id).
+IG_USER_ID = os.getenv("IG_USER_ID", "").strip()
 RUPLOAD = f"https://rupload.facebook.com/ig-api-upload/{API_VERSION}"
 
 # Refresh the long-lived token when the last refresh is older than this.

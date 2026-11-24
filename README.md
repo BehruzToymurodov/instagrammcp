@@ -24,13 +24,18 @@ A small MCP server that lets Claude **analyse** and **post to** the Lyric Noir I
 
 ### 1. Get the access token (one time)
 
-1. Go to **developers.facebook.com** → **My Apps → Create App**.
-2. Use case: **Manage messaging & content on Instagram**.
-3. Open the use case → **API setup with Instagram login** → **Generate access tokens** → **Add account** and log in as @lyricno1r.
-4. Make sure these permissions are on: `instagram_business_basic`, `instagram_business_content_publish`, `instagram_business_manage_comments`, `instagram_business_manage_insights`.
-5. Click **Generate token** and copy it.
+New Meta apps use **"API setup with Unified login"**, which gives a **system user token** (starts with `EAA…`) that never expires. The older Instagram Login token (`IGAA…`) also works if your app has it. The MCP detects which one you pasted.
+
+1. **developers.facebook.com → My Apps → your app → Use cases → Instagram API → API setup with Unified login.**
+2. Connect a business portfolio (free; e.g. "Lyric Noir").
+3. Click **Create new configuration**. Select your Instagram account (@lyricno1r) and keep the permissions `instagram_basic`, `instagram_content_publish`, `instagram_manage_comments`. If `instagram_manage_insights` is offered, **add it** (needed for analytics).
+4. Generate the system user access token and copy it.
 
 > The token works like a password for the page. Never paste it in a chat, a screenshot or a commit.
+
+#### Finding IG_USER_ID (only if `check` asks for it)
+
+With a system user token, the MCP tries to find your Instagram account automatically. If it can't, find the number in **Meta Business Suite → Settings → Accounts → Instagram accounts → @lyricno1r** (the ID shown there), and add `IG_USER_ID=1784…` to `.env`.
 
 ### 2. Install
 
@@ -107,7 +112,7 @@ To make it automatic, use **Windows Task Scheduler** → *Create Basic Task* →
 
 ## Good to know
 
-- **The token renews itself.** Tokens last 60 days. The server refreshes it about once a week and saves the new one in `data/token.json`, which then takes priority over `.env`. If you don't use it for 60 days, generate a new token in the Meta dashboard and paste it into `.env` again. Delete `data/token.json` if it's older than the new token.
+- **Tokens:** system user tokens (`EAA…`, from Unified login) never expire. Instagram Login tokens (`IGAA…`) last 60 days, and The server refreshes it about once a week and saves the new one in `data/token.json`, which then takes priority over `.env`. If you don't use it for 60 days, generate a new token in the Meta dashboard and paste it into `.env` again. Delete `data/token.json` if it's older than the new token.
 - **Video limits (Meta's Reels spec):** `.mp4` or `.mov`, **300 MB max**, 3 seconds to 15 minutes, H.264 video + AAC audio, 23–60 fps, video bitrate up to about 25 Mb/s. Horizontal 16:9 is allowed (Instagram shows bars in the Reels feed).
 - **Covers:** `cover_url` must be a public image link. Otherwise use `thumb_offset_ms` to pick a frame from the video (e.g. `4000` = the frame at 4 s).
 - **Insights delay:** new posts may show 0 views for a few minutes, and some metrics only appear after about 24 hours.
